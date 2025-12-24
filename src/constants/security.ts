@@ -1,0 +1,6 @@
+export const AUTH_SECURITY = {
+  MAX_LOGIN_ATTEMPTS: 5,
+  LOCK_TIME_MS: 15 * 60 * 1000, // 15 minutes
+  ACCESS_TOKEN_EXP: '15m',
+  REFRESH_TOKEN_DAYS: 7,
+};
