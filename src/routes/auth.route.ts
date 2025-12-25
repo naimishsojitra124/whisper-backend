@@ -8,6 +8,10 @@ import {
 } from "../controllers/auth.controller";
 
 export async function authRoutes(app: FastifyInstance) {
+  app.get("/login", async () => {
+    return { debug: "GET login reached" };
+  });
+
   // Register
   app.post("/register", createRegisterController(app));
 
