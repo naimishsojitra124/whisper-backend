@@ -7,7 +7,10 @@ export interface UserDocument extends Document {
   email: string;
   password: string;
   emailVerified?: Date;
-  isTwoFactorEnabled: Date;
+  isTwoFactorEnabled: boolean;
+  twoFactorSecret?: string;
+  twoFactorTempSecret?: string;
+  twoFactorEnabledAt?: Date;
   loginAttempts: number;
   lockedUntil?: Date;
   lastLoginAt?: Date;
@@ -19,6 +22,8 @@ export interface UserDocument extends Document {
     location: string;
     loggedInAt: Date;
   };
+  pendingEmail?: string;
+  pendingEmailRequestedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,7 +49,20 @@ const UserSchema = new Schema<UserDocument>(
 
     emailVerified: Date,
 
-    isTwoFactorEnabled: Date,
+    isTwoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+
+    twoFactorSecret: {
+      type: String,
+    },
+
+    twoFactorTempSecret: {
+      type: String,
+    },
+
+    twoFactorEnabledAt: Date,
 
     loginAttempts: {
       type: Number,
@@ -62,6 +80,13 @@ const UserSchema = new Schema<UserDocument>(
       location: String,
       loggedInAt: Date,
     },
+
+    pendingEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
+    },
+    pendingEmailRequestedAt: Date,
   },
   { timestamps: true }
 );

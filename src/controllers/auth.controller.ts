@@ -1,11 +1,16 @@
 import { FastifyRequest, FastifyReply, FastifyInstance } from "fastify";
-import { loginSchema, registerSchema } from "../schemas/auth.schema";
+import {
+  loginSchema,
+  registerSchema,
+  twoFactorLoginSchema,
+} from "../schemas/auth.schema";
 import {
   loginUser,
   logoutUser,
   refreshSession,
   registerUser,
   verifyEmail,
+  verifyTwoFactorLogin,
 } from "../services/auth.service";
 import { sendVerificationEmail } from "../lib/mail/mail";
 
@@ -31,6 +36,7 @@ export function createRegisterController(fastify: FastifyInstance) {
         email: result.user.email,
         displayName: result.user.firstName || result.user.username || "User",
         token: result.verificationToken,
+        purpose: "register",
       });
 
       return reply.status(201).send({
@@ -92,25 +98,33 @@ export function createLoginController(fastify: FastifyInstance) {
         userAgent: request.headers["user-agent"],
       });
 
-      // Access token (short-lived)
-      const accessToken = reply.server.jwt.sign({
-        userId: result.user.id,
-      });
+      // 🔐 2FA required
+      if ((result as any).requiresTwoFactor) {
+        return reply.status(200).send({
+          requiresTwoFactor: true,
+          twoFactorToken: (result as any).twoFactorToken,
+        });
+      } else if (result.user) {
+        // Access token (short-lived)
+        const accessToken = reply.server.jwt.sign({
+          userId: result.user.id,
+        });
 
-      // Refresh token (HTTP-only cookie)
-      reply.setCookie("refreshToken", result.refreshToken, {
-        httpOnly: true,
-        secure: reply.server.config.COOKIE_SECURE,
-        sameSite: "strict",
-        path: "/api/auth/refresh",
-        maxAge: 7 * 24 * 60 * 60,
-      });
+        // Refresh token (HTTP-only cookie)
+        reply.setCookie("refreshToken", result.refreshToken, {
+          httpOnly: true,
+          secure: reply.server.config.COOKIE_SECURE,
+          sameSite: "strict",
+          path: "/api/auth/refresh",
+          maxAge: 7 * 24 * 60 * 60,
+        });
 
-      return reply.status(200).send({
-        success: "Login successful.",
-        accessToken,
-        user: result.user,
-      });
+        return reply.status(200).send({
+          success: "Login successful.",
+          accessToken,
+          user: result.user,
+        });
+      }
     } catch (err: any) {
       return reply.status(401).send({
         error: err.message || "Login failed.",
@@ -118,6 +132,7 @@ export function createLoginController(fastify: FastifyInstance) {
     }
   };
 }
+
 // Refresh Token
 export async function refreshTokenController(
   request: FastifyRequest,
@@ -186,4 +201,46 @@ export async function logoutController(
   return reply.status(200).send({
     success: "Logged out successfully.",
   });
+}
+
+// Verify 2FA Code
+export function createTwoFactorLoginController(fastify: FastifyInstance) {
+  return async function (request: FastifyRequest, reply: FastifyReply) {
+    const parsed = twoFactorLoginSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.status(400).send({ error: "Invalid input." });
+    }
+
+    try {
+      const result = await verifyTwoFactorLogin(fastify, parsed.data, {
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+
+      // Access token
+      const accessToken = reply.server.jwt.sign({
+        userId: result.user.id,
+      });
+
+      // Refresh token cookie
+      reply.setCookie("refreshToken", result.refreshToken, {
+        httpOnly: true,
+        secure: reply.server.config.COOKIE_SECURE,
+        sameSite: "strict",
+        path: "/api/auth/refresh",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return reply.send({
+        success: "Login successful.",
+        accessToken,
+        user: result.user,
+      });
+    } catch (err: any) {
+      return reply.status(401).send({
+        error: err.message || "Two-factor authentication failed.",
+      });
+    }
+  };
 }

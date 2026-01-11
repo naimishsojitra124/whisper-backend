@@ -48,6 +48,10 @@ const schema = {
       default: false,
     },
 
+    TWO_FACTOR_ENCRYPTION_KEY: {
+      type: "string"
+    },
+
     GOOGLE_CLIENT_ID: { type: "string" },
     GOOGLE_CLIENT_SECRET: { type: "string" },
     GOOGLE_REDIRECT_URI: {

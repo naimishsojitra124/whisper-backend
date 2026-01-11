@@ -10,8 +10,11 @@ import { lookupGeoIp } from "../lib/geoip/geoip";
 import type { RegisterInput } from "../schemas/auth.schema";
 import { AUTH_SECURITY } from "../constants/security";
 import { DeviceModel } from "../models/Device.model";
-import { sendNewDeviceAlert } from "../lib/mail/mail";
+import { sendNewDeviceAlert, sendTwoFactorOtpEmail } from "../lib/mail/mail";
 import { FastifyInstance } from "fastify";
+import { decrypt } from "../utils/crypto";
+import speakeasy from "speakeasy";
+import { generateEmailOtp } from "./user.service";
 
 // Register
 export async function registerUser(
@@ -198,6 +201,53 @@ export async function loginUser(
     throw invalidError;
   }
 
+  // 4️⃣ Reset login attempts
+  user.loginAttempts = 0;
+  user.lockedUntil = undefined;
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  // 2FA GATE
+  if (user.isTwoFactorEnabled) {
+    // 1️⃣ Create 2FA SESSION TOKEN
+    const twoFactorToken = randomBytes(32).toString("hex");
+    const twoFactorTokenHash = createHash("sha256")
+      .update(twoFactorToken)
+      .digest("hex");
+
+    await AuthTokenModel.create({
+      userId: user._id,
+      email: user.email,
+      tokenHash: twoFactorTokenHash,
+      type: AuthTokenType.TWO_FACTOR_LOGIN,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    // EMAIL OTP (fallback)
+    const emailOtp = generateEmailOtp();
+    const emailOtpHash = createHash("sha256").update(emailOtp).digest("hex");
+
+    await AuthTokenModel.create({
+      userId: user._id,
+      email: user.email,
+      tokenHash: emailOtpHash,
+      type: AuthTokenType.TWO_FACTOR_EMAIL_OTP,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    // Send OTP email
+    await sendTwoFactorOtpEmail(fastify, {
+      email: user.email,
+      userName: `${user.firstName} ${user.lastName}`,
+      otp: emailOtp,
+    });
+
+    return {
+      requiresTwoFactor: true,
+      twoFactorToken,
+    };
+  }
+
   // 7️⃣ Refresh token (7 days)
   const rawRefreshToken = randomBytes(64).toString("hex");
   const refreshTokenHash = createHash("sha256")
@@ -283,12 +333,6 @@ export async function loginUser(
       : "Unknown",
     loggedInAt: new Date(),
   };
-
-  // 4️⃣ Reset login attempts on success
-  user.loginAttempts = 0;
-  user.lockedUntil = undefined;
-  user.lastLoginAt = new Date();
-  await user.save();
 
   const safeUser = {
     id: user._id,
@@ -425,4 +469,192 @@ export async function logoutUser(
       userAgent: context.userAgent,
     });
   }
+}
+
+// Verify 2FA Code
+export async function verifyTwoFactorLogin(
+  fastify: FastifyInstance,
+  data: {
+    twoFactorToken: string;
+    totp?: string;
+    emailOtp?: string;
+  },
+  context: {
+    ip?: string;
+    userAgent?: string;
+  }
+) {
+  // Validate 2FA session
+  const sessionHash = createHash("sha256")
+    .update(data.twoFactorToken)
+    .digest("hex");
+
+  const twoFaSession = await AuthTokenModel.findOne({
+    tokenHash: sessionHash,
+    type: AuthTokenType.TWO_FACTOR_LOGIN,
+  });
+
+  if (!twoFaSession || twoFaSession.expiresAt < new Date()) {
+    throw new Error("Invalid or expired two-factor session.");
+  }
+
+  const user = await UserModel.findById(twoFaSession.userId);
+  if (!user || !user.isTwoFactorEnabled) {
+    throw new Error("Invalid two-factor session.");
+  }
+
+  let verified = false;
+
+  // Authenticator TOTP
+  if (data.totp) {
+    const secret = decrypt(fastify, user.twoFactorSecret!);
+    verified = speakeasy.totp.verify({
+      secret,
+      encoding: "base32",
+      token: data.totp,
+      window: 1,
+    });
+  }
+
+  // Email OTP
+  if (!verified && data.emailOtp) {
+    const emailOtpHash = createHash("sha256")
+      .update(data.emailOtp)
+      .digest("hex");
+
+    const emailOtpToken = await AuthTokenModel.findOne({
+      userId: user._id,
+      type: AuthTokenType.TWO_FACTOR_EMAIL_OTP,
+      tokenHash: emailOtpHash,
+    });
+
+    if (emailOtpToken && emailOtpToken.expiresAt > new Date()) {
+      verified = true;
+      await emailOtpToken.deleteOne(); // delete ONLY on success
+    }
+  }
+
+  if (!verified) {
+    await AuditLogModel.create({
+      userId: user._id,
+      action: AuditAction.TWO_FACTOR_LOGIN_FAILED,
+      ipAddress: context.ip,
+      userAgent: context.userAgent,
+    });
+
+    throw new Error("Invalid authentication code.");
+  }
+
+  //  Cleanup session token AFTER success
+  await twoFaSession.deleteOne();
+
+  // Refresh token (7 days)
+  const rawRefreshToken = randomBytes(64).toString("hex");
+  const refreshTokenHash = createHash("sha256")
+    .update(rawRefreshToken)
+    .digest("hex");
+
+  // Device tracking
+  const existingDevice = await DeviceModel.findOne({
+    userId: user._id,
+    userAgent: context.userAgent,
+    ipAddress: context.ip,
+  });
+
+  let isNewDevice = false;
+  let newDevice;
+  const geo = await lookupGeoIp(context.ip);
+
+  if (!existingDevice) {
+    isNewDevice = true;
+
+    newDevice = await DeviceModel.create({
+      userId: user._id,
+      deviceType: "web",
+      userAgent: context.userAgent,
+      ipAddress: context.ip,
+      geoLocation: geo ?? undefined,
+      lastActiveAt: new Date(),
+    });
+  } else {
+    existingDevice.lastActiveAt = new Date();
+    if (geo) {
+      existingDevice.geoLocation = {
+        country: geo.country,
+        region: geo.region,
+        city: geo.city,
+        latitude: geo.latitude,
+        longitude: geo.longitude,
+      };
+    }
+    await existingDevice.save();
+  }
+
+  // Send new device email
+  if (isNewDevice) {
+    await sendNewDeviceAlert(fastify, {
+      fullName: `${user.firstName} ${user.lastName}`,
+      email: user.email,
+      device: context.userAgent ?? "Unknown device",
+      location: geo
+        ? `${geo.city ?? geo.region ?? geo.country ?? "Unknown"}`
+        : "Unknown",
+      ip: context.ip ?? "Unknown",
+      time: new Date(),
+    });
+  }
+
+  await AuthTokenModel.create({
+    userId: user._id,
+    deviceId: existingDevice?._id ?? newDevice?._id,
+    email: user.email,
+    tokenHash: refreshTokenHash,
+    type: AuthTokenType.REFRESH,
+    expiresAt: new Date(
+      Date.now() + AUTH_SECURITY.REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000
+    ),
+  });
+
+  // Audit success
+  await AuditLogModel.create({
+    userId: user._id,
+    action: AuditAction.LOGIN_SUCCESS,
+    ipAddress: context.ip,
+    userAgent: context.userAgent,
+  });
+
+  // Persist LAST LOGIN SNAPSHOT (independent of device sessions)
+  user.lastLoginDevice = {
+    deviceType: "web",
+    userAgent: context.userAgent ?? "Unknown",
+    ipAddress: context.ip ?? "Unknown",
+    location: geo
+      ? `${geo.city ?? geo.region ?? geo.country ?? "Unknown"}`
+      : "Unknown",
+    loggedInAt: new Date(),
+  };
+
+  const safeUser = {
+    id: user._id,
+    username: user.username,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    avatar: user.avatar ?? null,
+    emailVerified: user.emailVerified,
+    isTwoFactorEnabled: user.isTwoFactorEnabled,
+    lastLoginDevice: {
+      deviceType: user.lastLoginDevice.deviceType,
+      userAgent: user.lastLoginDevice.userAgent,
+      ipAddress: user.lastLoginDevice.ipAddress,
+      location: user.lastLoginDevice.location,
+      loggedInAt: user.lastLoginDevice.loggedInAt,
+    },
+    createdAt: user.createdAt,
+  };
+
+  return {
+    user: safeUser,
+    refreshToken: rawRefreshToken,
+  };
 }

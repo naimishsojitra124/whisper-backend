@@ -1,10 +1,15 @@
 import { FastifyInstance } from "fastify";
 import {
+  createChangePasswordController,
+  createConfirmTwoFactorController,
+  createInitiateTwoFactorController,
+  createRequestEmailChangeController,
   getCurrentUserController,
   listUserDevicesController,
   logoutAllOtherDevicesController,
   revokeDeviceController,
   updateUserProfileController,
+  verifyEmailChangeController,
 } from "../controllers/user.controller";
 
 export async function userRoutes(app: FastifyInstance) {
@@ -13,6 +18,37 @@ export async function userRoutes(app: FastifyInstance) {
 
   // Update User Profile (firstName, lastName, username, avatar)
   app.put("/me", { preHandler: app.authenticate }, updateUserProfileController);
+
+  // Change Password
+  app.post(
+    "/change-password",
+    { preHandler: app.authenticate },
+    createChangePasswordController(app)
+  );
+
+  // Change Email
+  app.post(
+    "/change-email",
+    { preHandler: app.authenticate },
+    createRequestEmailChangeController(app)
+  );
+
+  // Verify Email Change
+  app.get("/verify-email-change", verifyEmailChangeController);
+
+  // Initiate 2FA Setup
+  app.post(
+    "/2fa/setup",
+    { preHandler: app.authenticate },
+    createInitiateTwoFactorController(app)
+  );
+
+  // Confirm & enable 2FA
+  app.post(
+    "/2fa/confirm",
+    { preHandler: app.authenticate },
+    createConfirmTwoFactorController(app)
+  );
 
   // List User Devices
   app.get(

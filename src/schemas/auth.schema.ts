@@ -16,3 +16,19 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+
+export const twoFactorLoginSchema = z
+  .object({
+    twoFactorToken: z.string(),
+    totp: z.string().length(6).optional(),
+    emailOtp: z.string().length(6).optional(),
+  })
+  .refine(
+    (data) => data.totp || data.emailOtp,
+    {
+      message: "Either TOTP or email OTP is required.",
+    }
+  );
+
+export type TwoFactorLoginInput = z.infer<typeof twoFactorLoginSchema>;

@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import {
   createLoginController,
   createRegisterController,
+  createTwoFactorLoginController,
   logoutController,
   refreshTokenController,
   verifyEmailController,
@@ -26,4 +27,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   // Refresh Token
   app.post("/refresh", refreshTokenController);
+
+  // Verify Login MFA
+  app.post("/login/2fa", createTwoFactorLoginController(app));
 }

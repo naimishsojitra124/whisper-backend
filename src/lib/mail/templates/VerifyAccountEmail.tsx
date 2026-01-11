@@ -10,66 +10,89 @@ import {
   Img,
   Preview,
   Hr,
-} from '@react-email/components';
-import { FastifyInstance } from 'fastify';
+} from "@react-email/components";
+import { FastifyInstance } from "fastify";
 
 interface VerifyAccountEmailProps {
   verificationLink: string;
   userName: string;
+  purpose: "register" | "change-email";
 }
-
 
 const VerifyAccountEmail = (
   fastify: FastifyInstance,
-    {
-        verificationLink,
-        userName,
-    }: VerifyAccountEmailProps) => {
-    const LOGO_URL = fastify.config.LOGO_URL;
+  { verificationLink, userName, purpose }: VerifyAccountEmailProps
+) => {
+  const LOGO_URL = fastify.config.LOGO_URL;
+
+  const isEmailChange = purpose === "change-email";
+
+  const title = isEmailChange
+    ? "Confirm your new email address"
+    : "Verify your Whisper account";
+
+  const previewText = isEmailChange
+    ? "Confirm your new email address for your Whisper account"
+    : `Welcome to Whisper, ${userName}. Verify your email to get started.`;
+
+  const heading = isEmailChange
+    ? "Confirm your new email address"
+    : `Welcome to Whisper, ${userName}`;
+
+  const description = isEmailChange
+    ? "You requested to change the email address associated with your Whisper account. Please confirm your new email address to complete this change."
+    : "You’re almost ready. Please verify that this is your email address to activate your Whisper account and start secure conversations.";
+
+  const ctaText = isEmailChange
+    ? "Confirm new email address"
+    : "Verify email address";
+
+  const footerNote = isEmailChange
+    ? "This confirmation link will expire in 10 minutes. If you did not request this email change, please secure your account immediately."
+    : "This verification link will expire in 10 minutes. If you did not create a Whisper account, you can safely ignore this email.";
+
   return (
     <Html>
       <Head>
         <meta charSet="UTF-8" />
-        <title>Verify your Whisper account</title>
+        <title>{title}</title>
         <meta
           name="description"
           content="Verify your email address to activate your Whisper account."
         />
       </Head>
 
-      <Preview>
-        Welcome to Whisper, {userName}. Verify your email to get started.
-      </Preview>
+      <Preview>{previewText}</Preview>
 
       <Body
         style={{
           margin: 0,
           padding: 0,
-          backgroundColor: '#f9fafb', // background.light
+          backgroundColor: "#f9fafb", // background.light
         }}
       >
         <Container
           style={{
-            maxWidth: '520px',
-            margin: '40px auto',
-            backgroundColor: '#f3f4f6', // surface.light
-            borderRadius: '12px',
-            padding: '32px',
+            maxWidth: "520px",
+            margin: "40px auto",
+            backgroundColor: "#f3f4f6", // surface.light
+            borderRadius: "12px",
+            padding: "32px",
             fontFamily:
               "'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            color: '#1f2937', // text.primaryLight
-            letterSpacing: '0.02rem',
-            lineHeight: '1.6',
+            color: "#1f2937", // text.primaryLight
+            letterSpacing: "0.02rem",
+            lineHeight: "1.6",
           }}
         >
           {/* Logo */}
-          <Section style={{ textAlign: 'center', marginBottom: '24px' }}>
+          <Section style={{ textAlign: "center", marginBottom: "24px" }}>
             <Img
               src={LOGO_URL}
               alt="Whisper Logo"
               width="160"
               style={{
-                margin: '0 auto',
+                margin: "0 auto",
               }}
             />
           </Section>
@@ -78,43 +101,42 @@ const VerifyAccountEmail = (
           <Section>
             <Text
               style={{
-                fontSize: '26px',
-                fontWeight: '700',
-                marginBottom: '12px',
-                color: '#1f2937',
+                fontSize: "26px",
+                fontWeight: "700",
+                marginBottom: "12px",
+                color: "#1f2937",
               }}
             >
-              Welcome to Whisper, {userName}
+              {heading}
             </Text>
 
             <Text
               style={{
-                fontSize: '15px',
-                marginBottom: '24px',
-                color: '#374151',
+                fontSize: "15px",
+                marginBottom: "24px",
+                color: "#374151",
               }}
             >
-              You’re almost ready. Please verify that this is your email address
-              to activate your Whisper account and start secure conversations.
+              {description}
             </Text>
           </Section>
 
           {/* CTA */}
-          <Section style={{ textAlign: 'center', marginBottom: '24px' }}>
+          <Section style={{ textAlign: "center", marginBottom: "24px" }}>
             <Button
               href={verificationLink}
               style={{
-                backgroundColor: '#0891b2', // primary.light
-                color: '#ffffff',
-                padding: '14px 22px',
-                fontSize: '15px',
-                borderRadius: '8px',
-                fontWeight: '600',
-                textDecoration: 'none',
-                display: 'inline-block',
+                backgroundColor: "#0891b2", // primary.light
+                color: "#ffffff",
+                padding: "14px 22px",
+                fontSize: "15px",
+                borderRadius: "8px",
+                fontWeight: "600",
+                textDecoration: "none",
+                display: "inline-block",
               }}
             >
-              Verify email address
+              {ctaText}
             </Button>
           </Section>
 
@@ -122,36 +144,35 @@ const VerifyAccountEmail = (
           <Section>
             <Text
               style={{
-                fontSize: '13px',
-                color: '#6b7280', // text.mutedLight
-                marginBottom: '16px',
+                fontSize: "13px",
+                color: "#6b7280", // text.mutedLight
+                marginBottom: "16px",
               }}
             >
-              This verification link will expire in 10 minutes. If you did not
-              create a Whisper account, you can safely ignore this email.
+             {footerNote}
             </Text>
 
             <Hr
               style={{
-                border: 'none',
-                borderTop: '1px solid #e5e7eb',
-                margin: '20px 0',
+                border: "none",
+                borderTop: "1px solid #e5e7eb",
+                margin: "20px 0",
               }}
             />
 
             <Text
               style={{
-                fontSize: '13px',
-                color: '#6b7280',
+                fontSize: "13px",
+                color: "#6b7280",
               }}
             >
-              Need help? Contact us at{' '}
+              Need help? Contact us at{" "}
               <Link
                 href="mailto:wecare.whisper@gmail.com"
                 style={{
-                  color: '#0891b2',
-                  textDecoration: 'none',
-                  fontWeight: '500',
+                  color: "#0891b2",
+                  textDecoration: "none",
+                  fontWeight: "500",
                 }}
               >
                 wecare.whisper@gmail.com
